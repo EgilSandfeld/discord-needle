@@ -109,6 +109,11 @@ export const command: NeedleCommand = {
 						return option
 							.setName("custom-message")
 							.setDescription("The message to send when a thread is created (\"\\n\" for new line)");
+					})
+          .addStringOption(option => {
+						return option
+							.setName("whah")
+							.setDescription("What whah");
 					});
 			})
 			.addSubcommand(subcommand => {

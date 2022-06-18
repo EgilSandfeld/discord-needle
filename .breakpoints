@@ -1,0 +1,18 @@
+{
+  "files": {
+    "src/commands/trello.ts": [
+      {
+        "id": "48e7d41e-8ff7-4904-bc63-0b4aa4f72393",
+        "line": 14,
+        "version": 2583,
+        "index": 591
+      },
+      {
+        "id": "cc4e28a3-b11e-4ff8-b5fe-2d15f2f4a7dd",
+        "line": 46,
+        "version": 2583,
+        "index": 1554
+      }
+    ]
+  }
+}
