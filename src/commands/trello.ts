@@ -118,7 +118,7 @@ async function trelloAdd(interaction: CommandInteraction): Promise<void> {
 
   // var url = firstMessage.url;
   var url = "https://discord.com/channels/" + channel.guildId + "/" + channel.id;
-  var userUrl = "hhttps://discordapp.com/users/" + threadAuthor.id;
+  var userUrl = "https://discordapp.com/users/" + threadAuthor.id;
   
   // console.log("url: "+  url + " channel id:" + channel.id + " channel parentId:" + channel.parentId + " firstMessage.id: " + firstMessage.id + " general channel id: " + channel.parent?.parent?.parent?.id + " guild id: " + channel.guildId);
 
@@ -156,15 +156,23 @@ async function sendToTrello(bug: boolean, label: string, title: string, descript
     to: process.env['TRELLO_BOARD_EMAIL'], // list of receivers
     // to: "sandfeld@gmail.com,egilsandfeld+cgobh51hhzrt1da1rxmr@boards.trello.com", // list of receivers
     subject: title + (bug ? " #Bug" : "") + " #" + label, // Subject line
-    text: "**["+title+"]("+url+")**\n**["+userName+"]("+userUrl+")**\n\n" + description , // plain text body
+    text: "["+userName+"]("+userUrl+"): **["+title+"]("+url+")**\n\n" + description , // plain text body
     // attachments: [
     //     {   
     //         // filename: userName,
     //         filename: url
     //     }
     // ]
+  }, function(err: any, info: any) {
+      if (err) {
+        console.log("Trello error for: %s, %s", title, new Date());
+        console.log(err)
+      } else {
+        console.log("Trello: %s, %s", title, new Date());
+        console.log("Trello response: %s", info);
+      }
   });
 
-  //console.log("Message sent: %s", info.messageId);
+  
   return "";
 }
