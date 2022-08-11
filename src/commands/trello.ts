@@ -3,115 +3,146 @@ import { type CommandInteraction, GuildMember, Permissions } from "discord.js";
 import { interactionReply, getMessage, getThreadAuthor, addMessageContext } from "../helpers/messageHelpers";
 import type { NeedleCommand } from "../types/needleCommand";
 import { memberIsModerator } from "../helpers/permissionHelpers";
+import { ChannelTypes } from "discord.js/typings/enums";
 var nodemailer = require('nodemailer');
 
 export const command: NeedleCommand = {
-	name: "trello",
-	shortHelpDescription: "Trello actions",
-	longHelpDescription: "Trello actions.",
+  name: "trello",
+  shortHelpDescription: "Trello actions",
+  longHelpDescription: "Trello actions.",
 
-	async getSlashCommandBuilder() {
-		return new SlashCommandBuilder()
-			.setName("trello")
-			.setDescription("Trello actions")
+  async getSlashCommandBuilder() {
+    return new SlashCommandBuilder()
+      .setName("trello")
+      .setDescription("Trello actions")
       .addSubcommand(subcommand => {
-				return subcommand
-					.setName("add")
-					.setDescription("Creates a trello card based on thread")
-					.addStringOption(option => {
-						return option
-							.setName("label")
-							.setDescription("Main label to assign to the card")
-							.addChoice("🔵 Low", "Low")
+        return subcommand
+          .setName("add")
+          .setDescription("Creates a trello card based on thread")
+          .addStringOption(option => {
+            return option
+              .setName("label")
+              .setDescription("Main label to assign to the card")
+              .addChoice("🔵 Low", "Low")
               .addChoice("🟡 Medium", "Medium")
               .addChoice("🟠 High", "High")
               .addChoice("🔴 Major", "Major")
               .addChoice("🟣 Critical", "Critical")
               .setRequired(true);
-					})
-          
-          .addBooleanOption(option => {
-						return option
-							.setName("bug")
-							.setDescription("Whether or not this card is a bug")
-							.setRequired(true);
-					});
-			})
-			.toJSON();
-	},
+          })
 
-	async execute(interaction: CommandInteraction): Promise<void> {
-		const member = interaction.member;
-    
-		if (!(member instanceof GuildMember)) {
-			return interactionReply(interaction, getMessage("ERR_UNKNOWN", interaction.id));
-		}
+          .addBooleanOption(option => {
+            return option
+              .setName("bug")
+              .setDescription("Whether or not this card is a bug")
+              .setRequired(true);
+          });
+      })
+      .toJSON();
+  },
+
+  async execute(interaction: CommandInteraction): Promise<void> {
+    const member = interaction.member;
+
+    if (!(member instanceof GuildMember)) {
+      return interactionReply(interaction, getMessage("ERR_UNKNOWN", interaction.id));
+    }
 
     if (!memberIsModerator(member as GuildMember)) {
-			return interactionReply(interaction, getMessage("ERR_INSUFFICIENT_PERMS", interaction.id));
-		}
+      return interactionReply(interaction, getMessage("ERR_INSUFFICIENT_PERMS", interaction.id));
+    }
 
-		const channel = interaction.channel;
-		if (!channel?.isThread()) {
-			return interactionReply(interaction, getMessage("ERR_ONLY_IN_THREAD", interaction.id));
-		}
+    const channel = interaction.channel;
+    if (!channel?.isThread()) {
+      return interactionReply(interaction, getMessage("ERR_ONLY_IN_THREAD", interaction.id));
+    }
 
     if (interaction.options.getSubcommand() === "add") {
-			return trelloAdd(interaction);
-		}
+      return trelloAdd(interaction);
+    }
 
     return interactionReply(interaction, getMessage("ERR_UNKNOWN", interaction.id));
-	},
+  },
 };
 
 async function trelloAdd(interaction: CommandInteraction): Promise<void> {
-	//const channel = interaction.options.getChannel("channel") as GuildTextBasedChannel;
+  //const channel = interaction.options.getChannel("channel") as GuildTextBasedChannel;
 
   const channel = interaction.channel;
-		if (!channel?.isThread()) {
-			return interactionReply(interaction, getMessage("ERR_ONLY_IN_THREAD", interaction.id));
-		}
-  
-	const bug = interaction.options.getBoolean("bug");
-	const label = interaction.options.getString("label") ?? "Low";
+  if (!channel?.isThread()) {
+    return interactionReply(interaction, getMessage("ERR_ONLY_IN_THREAD", interaction.id));
+  }
 
-	if (!interaction.guild || !interaction.guildId) {
-		return interactionReply(interaction, getMessage("ERR_ONLY_IN_SERVER", interaction.id));
-	}
+  const bug = interaction.options.getBoolean("bug");
+  const label = interaction.options.getString("label") ?? "Low";
 
-	if (!channel || bug == null) {
-		return interactionReply(interaction, getMessage("ERR_PARAMETER_MISSING", interaction.id));
-	}
+  if (!interaction.guild || !interaction.guildId) {
+    return interactionReply(interaction, getMessage("ERR_ONLY_IN_SERVER", interaction.id));
+  }
 
-	const clientUser = interaction.client.user;
-	if (!clientUser) {
+  if (!channel || bug == null) {
+    return interactionReply(interaction, getMessage("ERR_PARAMETER_MISSING", interaction.id));
+  }
+
+  const clientUser = interaction.client.user;
+  if (!clientUser) {
     return interactionReply(interaction, getMessage("ERR_UNKNOWN", interaction.id));
   }
 
-	const botMember = await interaction.guild.members.fetch(clientUser);
-	const botPermissions = botMember.permissionsIn(channel.id);
+  const botMember = await interaction.guild.members.fetch(clientUser);
+  const botPermissions = botMember.permissionsIn(channel.id);
 
-	if (!botPermissions.has(Permissions.FLAGS.VIEW_CHANNEL)) {
-		addMessageContext(interaction.id, { channel });
-		return interactionReply(interaction, getMessage("ERR_CHANNEL_VISIBILITY", interaction.id));
-	}
+  if (botPermissions !== null && !botPermissions.has(Permissions.FLAGS.VIEW_CHANNEL)) {
+    addMessageContext(interaction.id, { channel });
+    return interactionReply(interaction, getMessage("ERR_CHANNEL_VISIBILITY", interaction.id));
+  }
 
-  
+
   const threadAuthor = await getThreadAuthor(channel);
-		if (!threadAuthor) {
-			return interactionReply(interaction, getMessage("ERR_AMBIGUOUS_THREAD_AUTHOR", interaction.id));
-		}
 
-  const firstMessage = (await channel.fetchStarterMessage());
+  if (!threadAuthor) {
+    return interactionReply(interaction, getMessage("ERR_AMBIGUOUS_THREAD_AUTHOR", interaction.id));
+  }
 
-  
-  if (firstMessage == undefined)
-    return interactionReply(interaction, 'Could not get first message');
+  let firstMessageString;
 
-  const firstMessageString = firstMessage.content;
+  let parentChannel = channel.parent;
+  if (parentChannel === null || parentChannel === undefined) {
+    //This is a Forum thread
+    let messages = await channel.messages.fetch();
+
+    if (messages === null || messages === undefined) {
+      return interactionReply(interaction, 'Could not get first message');
+    }
+
+    let firstMessage = messages.first();
+
+    //Find the first message created by comparing createdAt dates
+    messages.forEach(msg => {
+         if (firstMessage === null || firstMessage === undefined  || msg.createdAt < firstMessage.createdAt) {
+           firstMessage = msg;
+         }
+       });
+    
+    if (firstMessage == undefined) {
+      return interactionReply(interaction, 'Could not get first message');
+    }
+
+    firstMessageString = firstMessage.content;
+  }
+  else {
+    //This is a Text Channel thread
+    const firstMessage = (await channel.fetchStarterMessage());
+
+
+    if (firstMessage == undefined)
+      return interactionReply(interaction, 'Could not get first message');
+
+    firstMessageString = firstMessage.content;
+  }
 
   // let messages = await channel.messages.fetch();
-  
+
   // messages.forEach(msg => {
   //     console.log(msg.id);
   //   });
@@ -119,19 +150,19 @@ async function trelloAdd(interaction: CommandInteraction): Promise<void> {
   // var url = firstMessage.url;
   var url = "https://discord.com/channels/" + channel.guildId + "/" + channel.id;
   var userUrl = "https://discordapp.com/users/" + threadAuthor.id;
-  
+
   // console.log("url: "+  url + " channel id:" + channel.id + " channel parentId:" + channel.parentId + " firstMessage.id: " + firstMessage.id + " general channel id: " + channel.parent?.parent?.parent?.id + " guild id: " + channel.guildId);
 
-  const result = await sendToTrello(bug, 
-                                    label, 
-                                    channel.name, 
-                                    firstMessageString, 
-                                    url, 
-                                    threadAuthor.username,
-                                    userUrl);
-    return result == ""
-        ? interactionReply(interaction, `Added Trello card: <#${channel.id}>`)
-        : interactionReply(interaction, 'Could not send details to Trello');
+  const result = await sendToTrello(bug,
+    label,
+    channel.name,
+    firstMessageString,
+    url,
+    threadAuthor.username,
+    userUrl);
+  return result == ""
+    ? interactionReply(interaction, `Added Trello card: <#${channel.id}>`)
+    : interactionReply(interaction, 'Could not send details to Trello');
 }
 
 async function sendToTrello(bug: boolean, label: string, title: string, description: string, url: string, userName: string, userUrl: string) {
@@ -156,7 +187,7 @@ async function sendToTrello(bug: boolean, label: string, title: string, descript
     to: process.env['TRELLO_BOARD_EMAIL'], // list of receivers
     // to: "sandfeld@gmail.com,egilsandfeld+cgobh51hhzrt1da1rxmr@boards.trello.com", // list of receivers
     subject: title + (bug ? " #Bug" : "") + " #" + label, // Subject line
-    text: "["+userName+"]("+userUrl+"): **["+title+"]("+url+")**\n\n" + description , // plain text body
+    text: "[" + userName + "](" + userUrl + "): **[" + title + "](" + url + ")**\n\n" + description, // plain text body
     // attachments: [
     //     {   
     //         // filename: userName,
@@ -164,15 +195,15 @@ async function sendToTrello(bug: boolean, label: string, title: string, descript
     //     }
     // ]
   }, function(err: any, info: any) {
-      if (err) {
-        console.log("Trello error for: %s, %s", title, new Date());
-        console.log(err)
-      } else {
-        console.log("Trello: %s, %s", title, new Date());
-        console.log("Trello response: %s", info);
-      }
+    if (err) {
+      console.log("Trello error for: %s, %s", title, new Date());
+      console.log(err)
+    } else {
+      console.log("Trello: %s, %s", title, new Date());
+      console.log("Trello response: %s", info);
+    }
   });
 
-  
+
   return "";
 }

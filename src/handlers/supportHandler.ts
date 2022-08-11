@@ -76,8 +76,9 @@ export async function handleButtonClickedInteraction(interaction: MessageCompone
     console.error(error);
     return interactionReply(interaction, getMessage("ERR_UNKNOWN", interaction.id));
   }
+}
 
-  async function onSupportTypeIssue(interaction: MessageComponentInteraction): Promise<void> {
+export async function onSupportTypeIssue(interaction: MessageComponentInteraction): Promise<void> {
     //await interaction.reply({ ephemeral: true, content: 'You chose Issue' });
     const row = new MessageActionRow()
       .addComponents(
@@ -104,7 +105,6 @@ export async function handleButtonClickedInteraction(interaction: MessageCompone
 
     await interaction.reply({ ephemeral: true, content: 'What kind of issue do you have?', components: [row], fetchReply: true });
   }
-}
 
 export async function getOrLoadAllCommands(allowCache = true): Promise<NeedleCommand[]> {
   if (loadedCommands.length > 0 && allowCache) {
