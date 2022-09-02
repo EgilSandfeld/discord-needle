@@ -1,121 +1,83 @@
-// ________________________________________________________________________________________________
-//
-// This file is part of Needle.
-//
-// Needle is free software: you can redistribute it and/or modify it under the terms of the GNU
-// Affero General Public License as published by the Free Software Foundation, either version 3 of
-// the License, or (at your option) any later version.
-//
-// Needle is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even
-// the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero
-// General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License along with Needle.
-// If not, see <https://www.gnu.org/licenses/>.
-//
-// ________________________________________________________________________________________________
+/*
+This file is part of Needle.
 
-import { SlashCommandBuilder } from "@discordjs/builders";
-import { type CommandInteraction, GuildMember, type MessageComponentInteraction, Permissions, type ThreadChannel } from "discord.js";
-import { shouldArchiveImmediately } from "../helpers/configHelpers";
-import { interactionReply, getMessage, getThreadAuthor } from "../helpers/messageHelpers";
-import { setEmojiForNewThread } from "../helpers/threadHelpers";
-import { memberIsModerator } from "../helpers/permissionHelpers";
-import type { NeedleCommand } from "../types/needleCommand";
+Needle is free software: you can redistribute it and/or modify it under the terms of the GNU
+Affero General Public License as published by the Free Software Foundation, either version 3 of
+the License, or (at your option) any later version.
 
-export const command: NeedleCommand = {
-  name: "close",
-  shortHelpDescription: "Closes a thread by setting the auto-archive duration to 1 hour",
-  longHelpDescription: "The close command sets the auto-archive duration to 1 hour in a thread.\n\nWhen using auto-archive, the thread will automatically be archived when there have been no new messages in the thread for one hour. This can be undone by a server moderator by manually changing the auto-archive duration back to what it was previously, using Discord's own interface.",
+Needle is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even
+the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero
+General Public License for more details.
 
-  async getSlashCommandBuilder() {
-    return new SlashCommandBuilder()
-      .setName("close")
-      .setDescription("Closes a thread by setting the auto-archive duration to 1 hour")
-      .toJSON();
-  },
+You should have received a copy of the GNU Affero General Public License along with Needle.
+If not, see <https://www.gnu.org/licenses/>.
+*/
 
-  async execute(interaction: CommandInteraction | MessageComponentInteraction): Promise<void> {
-    const member = interaction.member;
-    if (!(member instanceof GuildMember)) {
-      return interactionReply(interaction, getMessage("ERR_UNKNOWN", interaction.id));
-    }
+import { type GuildMember, type GuildTextBasedChannel, ThreadAutoArchiveDuration } from "discord.js";
+import { isAllowedToArchiveThread, removeUserReactionsOnMessage, tryReact } from "../helpers/djsHelpers.js";
+import CommandCategory from "../models/enums/CommandCategory.js";
+import type InteractionContext from "../models/InteractionContext.js";
+import NeedleCommand from "../models/NeedleCommand.js";
 
-    const channel = interaction.channel;
-    if (!channel?.isThread()) {
-      return interactionReply(interaction, getMessage("ERR_ONLY_IN_THREAD", interaction.id));
-    }
+export default class CloseCommand extends NeedleCommand {
+	public readonly name = "close";
+	public readonly description = "Close a thread";
+	public readonly category = CommandCategory.ThreadOnly;
 
-    // Invoking slash commands seem to unarchive the threads for now so ironically, this has no effect
-    // Leaving this in if Discord decides to change their API around this
-    if (channel.archived) {
-      return interactionReply(interaction, getMessage("ERR_NO_EFFECT", interaction.id));
-    }
+	public async hasPermissionToExecuteHere(member: GuildMember, channel: GuildTextBasedChannel): Promise<boolean> {
+		if (!channel.isThread()) return false;
 
-    const permissions = member.permissionsIn(channel);
+		const hasBasePermissions = await super.hasPermissionToExecuteHere(member, channel);
+		if (!hasBasePermissions) return false;
 
-    if (permissions !== null && permissions.has(Permissions.FLAGS.MANAGE_THREADS, true)) {
-      await archiveThread(channel);
-      return;
-    }
+		return isAllowedToArchiveThread(channel, member);
+	}
 
-    let parentChannel = channel.parent;
-    if (parentChannel === null || parentChannel === undefined) {
+	public async execute(context: InteractionContext): Promise<void> {
+		const { settings, replyInSecret, replyInPublic, replyWithErrors } = context;
+		if (!context.isInThread()) {
+			return replyWithErrors();
+		}
 
-      if (!memberIsModerator(member as GuildMember)) {
-        return interactionReply(interaction, getMessage("ERR_INSUFFICIENT_PERMS", interaction.id));
-      }
+		const { interaction, messageVariables } = context;
+		const { channel: thread, member } = context.interaction;
+		const userHasPermission = await isAllowedToArchiveThread(thread, member);
+		const botHasPermission = await isAllowedToArchiveThread(thread, thread.guild.members.me);
 
-      //This is a forum thread
-      return await archiveThread(channel);
-    }
+		if (!userHasPermission) return replyInSecret(settings.ErrorInsufficientUserPerms);
+		if (!botHasPermission) return replyInSecret(settings.ErrorInsufficientBotPerms);
 
-    const threadAuthor = await getThreadAuthor(channel);
-    if (!threadAuthor) {
-      return interactionReply(interaction, getMessage("ERR_AMBIGUOUS_THREAD_AUTHOR", interaction.id));
-    }
+		messageVariables.setThread(thread);
+		const config = this.bot.configs.get(thread.guildId);
+		const threadConfig = config.threadChannels.find(c => c.channelId === thread.parentId);
+		const shouldArchiveImmediately = threadConfig?.archiveImmediately ?? true;
+		const archiveMessage = await messageVariables.replace(settings.SuccessThreadArchived);
 
-    if (threadAuthor !== interaction.user) {
-      return interactionReply(interaction, getMessage("ERR_ONLY_THREAD_OWNER", interaction.id));
-    }
+		if (!shouldArchiveImmediately && thread.autoArchiveDuration === ThreadAutoArchiveDuration.OneHour) {
+			return replyInSecret(settings.ErrorNoEffect);
+		}
 
-    await archiveThread(channel);
+		if (interaction.isButton()) {
+			// https://github.com/MarcusOtter/discord-needle/pull/90
+			await interaction.update({ content: interaction.message.content });
+			await thread.send({ content: archiveMessage });
+		} else {
+			await replyInPublic(archiveMessage);
+		}
 
-    async function archiveThread(thread: ThreadChannel): Promise<void> {
-      if (shouldArchiveImmediately(thread)) {
-        if (interaction.isButton()) {
-          await interaction.update({ content: interaction.message.content });
-          const message = getMessage("SUCCESS_THREAD_ARCHIVE_IMMEDIATE", interaction.id);
-          if (message) {
-            await thread.send(message);
-          }
-        }
-        else if (interaction.isCommand()) {
-          await interactionReply(interaction, getMessage("SUCCESS_THREAD_ARCHIVE_IMMEDIATE", interaction.id), false);
-        }
+		if (shouldArchiveImmediately) {
+			await thread.setArchived(true);
+		} else {
+			await thread.setAutoArchiveDuration(ThreadAutoArchiveDuration.OneHour);
 
-        await setEmojiForNewThread(thread, false);
-        await thread.setArchived(true);
-        return;
-      }
+			if (threadConfig?.statusReactions) {
+				const starterMessage = await thread.fetchStarterMessage();
+				if (!starterMessage) return;
 
-      if (thread.autoArchiveDuration === 60) {
-        return interactionReply(interaction, getMessage("ERR_NO_EFFECT", interaction.id));
-      }
-
-      await setEmojiForNewThread(thread, false);
-      await thread.setAutoArchiveDuration(60);
-
-      if (interaction.isButton()) {
-        await interaction.update({ content: interaction.message.content });
-        const message = getMessage("SUCCESS_THREAD_ARCHIVE_SLOW", interaction.id);
-        if (message) {
-          await thread.send(message);
-        }
-      }
-      else if (interaction.isCommand()) {
-        await interactionReply(interaction, getMessage("SUCCESS_THREAD_ARCHIVE_SLOW", interaction.id), false);
-      }
-    }
-  },
-};
+				const botMember = await thread.guild.members.fetchMe();
+				await removeUserReactionsOnMessage(starterMessage, botMember.id);
+				await tryReact(starterMessage, config.settings.EmojiArchived);
+			}
+		}
+	}
+}

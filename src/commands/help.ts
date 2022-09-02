@@ -1,135 +1,111 @@
-// ________________________________________________________________________________________________
-//
-// This file is part of Needle.
-//
-// Needle is free software: you can redistribute it and/or modify it under the terms of the GNU
-// Affero General Public License as published by the Free Software Foundation, either version 3 of
-// the License, or (at your option) any later version.
-//
-// Needle is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even
-// the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero
-// General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License along with Needle.
-// If not, see <https://www.gnu.org/licenses/>.
-//
-// ________________________________________________________________________________________________
+/*
+This file is part of Needle.
 
-import { SlashCommandBuilder } from "@discordjs/builders";
-import { type CommandInteraction, MessageActionRow, MessageEmbed } from "discord.js";
-import type { APIApplicationCommandOption } from "discord-api-types";
-import { getCommand, getOrLoadAllCommands } from "../handlers/commandHandler";
-import { getBugReportButton, getDiscordInviteButton, getFeatureRequestButton } from "../helpers/messageHelpers";
-import type { NeedleCommand } from "../types/needleCommand";
+Needle is free software: you can redistribute it and/or modify it under the terms of the GNU
+Affero General Public License as published by the Free Software Foundation, either version 3 of
+the License, or (at your option) any later version.
 
-export const command: NeedleCommand = {
-	name: "help",
-	shortHelpDescription: "", // Help command has a special treatment of help description
-	longHelpDescription: "The help command shows you a list of all available commands. If you provide a command after `/help`, it will show you more information about that specific command (exactly like you just did!).",
+Needle is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even
+the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero
+General Public License for more details.
 
-	getSlashCommandBuilder() {
-		return getHelpSlashCommandBuilder();
-	},
+You should have received a copy of the GNU Affero General Public License along with Needle.
+If not, see <https://www.gnu.org/licenses/>.
+*/
 
-	async execute(interaction: CommandInteraction): Promise<void> {
-		const row = new MessageActionRow()
-			.addComponents(
-				getDiscordInviteButton(),
-				getBugReportButton(),
-				getFeatureRequestButton());
+import { EmbedBuilder, type GuildMember, type GuildTextBasedChannel, type SlashCommandBuilder } from "discord.js";
+import type { Nullish, SlashCommandBuilderWithOptions } from "../helpers/typeHelpers.js";
+import CommandCategory from "../models/enums/CommandCategory.js";
+import type InteractionContext from "../models/InteractionContext.js";
+import NeedleCommand from "../models/NeedleCommand.js";
 
-		const commandName = interaction.options?.getString("command");
-		if (commandName) { // User wrote for example "/help title"
-			const commandsEmbed = await getCommandDetailsEmbed(commandName);
-			await interaction.reply({
-				embeds: commandsEmbed,
-				components: [row],
-				ephemeral: true,
-			});
-		}
-		else { // User only wrote "/help"
-			const commandsEmbed = await getAllCommandsEmbed();
-			await interaction.reply({
-				embeds: [commandsEmbed],
-				components: [row],
-				ephemeral: true,
-			});
-		}
-	},
-};
+export default class HelpCommand extends NeedleCommand {
+	public readonly name = "help";
+	public readonly description = "See Needle's commands";
+	public readonly category = CommandCategory.Info;
 
-async function getCommandDetailsEmbed(commandName: string): Promise<MessageEmbed[]> {
-	const cmd = getCommand(commandName);
-	if (!cmd) { return []; }
-
-	const cmdOptionString = await getCommandOptionString(cmd);
-	const cmdOptions = await getCommandOptions(cmd);
-	let cmdOptionExplanations = "";
-	for (const option of cmdOptions ?? []) {
-		cmdOptionExplanations += `\`${option.name}\` - ${option.required ? "" : "(optional)"} ${option.description}\n`;
-	}
-
-	const commandInfoEmbed = new MessageEmbed()
-		.setTitle(`Information about \`/${cmd.name}\``)
-		.setDescription(cmd.longHelpDescription ?? cmd.shortHelpDescription)
-		.addField("Usage", `/${cmd.name}${cmdOptionString}`, false);
-
-	if (cmdOptionExplanations && cmdOptionExplanations.length > 0) {
-		commandInfoEmbed.addField("Options", cmdOptionExplanations, false);
-	}
-
-	return [commandInfoEmbed];
-}
-
-async function getAllCommandsEmbed(): Promise<MessageEmbed> {
-	const embed = new MessageEmbed().setTitle("🪡  Needle Commands"); // :sewing_needle:
-	const commands = await getOrLoadAllCommands();
-	for (const cmd of commands) {
-		// Help command gets special treatment
-		if (cmd.name === "help") {
-			embed.addField("/help", "Shows a list of all available commands", false);
-			embed.addField("/help  `command`", "Shows more information and example usage of a specific `command`", false);
-			continue;
-		}
-		const commandOptions = await getCommandOptionString(cmd);
-		embed.addField(`/${cmd.name}${commandOptions}`, cmd.shortHelpDescription, false);
-	}
-	return embed;
-}
-
-async function getCommandOptionString(cmd: NeedleCommand): Promise<string> {
-	const commandInfo = await cmd.getSlashCommandBuilder();
-	if (!commandInfo.options) { return ""; }
-
-	let output = "";
-	for (const option of commandInfo.options) {
-		output += `  \`${option.name}${option.required ? "" : "?"}\``;
-	}
-	return output;
-}
-
-async function getCommandOptions(cmd: NeedleCommand): Promise<APIApplicationCommandOption[] | undefined> {
-	const commandInfo = await cmd.getSlashCommandBuilder();
-	return commandInfo.options;
-}
-
-async function getHelpSlashCommandBuilder() {
-	const commands = await getOrLoadAllCommands();
-	const builder = new SlashCommandBuilder()
-		.setName("help")
-		.setDescription("Shows a list of all available commands")
-		.addStringOption(option => {
+	public addOptions(builder: SlashCommandBuilder): SlashCommandBuilderWithOptions {
+		return builder.addStringOption(option =>
 			option
-				.setName("command")
-				.setDescription("The specific command you want help with. Exclude this option to get a list of all commands.")
-				.setRequired(false);
+				.setName("filter")
+				.setDescription("Which commands do you want to see?")
+				.addChoices(
+					{ name: "Available to you in current channel (ᴅᴇꜰᴀᴜʟᴛ)", value: "default" },
+					{ name: "All Needle commands", value: "all" }
+				)
+		);
+	}
 
-			for (const cmd of commands) {
-				option.addChoice(cmd.name, cmd.name);
+	public async execute(context: InteractionContext): Promise<void> {
+		const isInGuild = context.isInGuild();
+		const member = isInGuild ? context.interaction.member : null;
+		const channel = isInGuild ? context.interaction.channel : null;
+		const showAll = context.isSlashCommand() && context.interaction.options.getString("filter") === "all";
+
+		const commandsEmbed = await this.getCommandsEmbed(member, channel, showAll);
+
+		await context.interaction.reply({
+			content: "Need more help with Needle? Join us in the [support server](https://discord.gg/8BmnndXHp6)!",
+			embeds: [commandsEmbed],
+			ephemeral: true,
+		});
+	}
+
+	private async getCommandsEmbed(
+		member: Nullish<GuildMember>,
+		channel: Nullish<GuildTextBasedChannel>,
+		showAll: boolean
+	): Promise<EmbedBuilder> {
+		const commands = await this.bot.getAllCommands();
+
+		const fields = [];
+		let seeingAllCommands = true;
+		for (const category of Object.values(CommandCategory)) {
+			const commandsInCategory = commands.filter(cmd => cmd.category === category);
+			const descriptions = await this.getCommandDescriptions(commandsInCategory, member, channel, showAll);
+
+			if (commandsInCategory.length !== descriptions.length) {
+				seeingAllCommands = false;
 			}
 
-			return option;
-		});
+			if (descriptions.length > 0) {
+				fields.push({ name: category, value: descriptions.join("\n") });
+			}
+		}
 
-	return builder.toJSON();
+		if (fields.length === 0) {
+			return new EmbedBuilder()
+				.setColor("#2f3136")
+				.setDescription("You do not have permission to use any Needle commands here.");
+		}
+
+		const builder = new EmbedBuilder().setColor("#2f3136").setFields(fields);
+		if (!seeingAllCommands) {
+			builder.setFooter({
+				text: 'Only showing commands available to you in this channel.\nUse "/help filter: all" to see all commands 👈',
+			});
+		}
+
+		return builder;
+	}
+
+	private async getCommandDescriptions(
+		commands: NeedleCommand[],
+		member: Nullish<GuildMember>,
+		channel: Nullish<GuildTextBasedChannel>,
+		showAll: boolean
+	): Promise<string[]> {
+		const output = [];
+		for (const command of commands) {
+			const { id, description, name } = command;
+
+			const hasPermission = await command.hasPermissionToExecuteHere(member, channel);
+			if (!showAll && hasPermission === false) continue;
+
+			const commandSyntax = `</${name}:${id}>`;
+			output.push(`${commandSyntax} — ${description}`);
+		}
+
+		return output;
+	}
 }

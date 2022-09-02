@@ -1,65 +1,28 @@
-// ________________________________________________________________________________________________
-//
-// This file is part of Needle.
-//
-// Needle is free software: you can redistribute it and/or modify it under the terms of the GNU
-// Affero General Public License as published by the Free Software Foundation, either version 3 of
-// the License, or (at your option) any later version.
-//
-// Needle is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even
-// the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero
-// General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License along with Needle.
-// If not, see <https://www.gnu.org/licenses/>.
-//
-// ________________________________________________________________________________________________
-import { config } from "dotenv";
-config();
+/*
+This file is part of Needle.
 
-import { Client, GatewayIntentBits } from "discord.js";
-import { getOrLoadAllCommands } from "./handlers/commandHandler";
-import { handleInteractionCreate } from "./handlers/interactionHandler";
-import { handleMessageCreate } from "./handlers/messageHandler";
-import { deleteConfigsFromUnknownServers, getApiToken, resetConfigToDefault } from "./helpers/configHelpers";
+Needle is free software: you can redistribute it and/or modify it under the terms of the GNU
+Affero General Public License as published by the Free Software Foundation, either version 3 of
+the License, or (at your option) any later version.
 
-console.log(`Needle, a Discord bot that declutters your server by creating threads
-Copyright (C) 2022  Marcus Otterström`);
+Needle is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even
+the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero
+General Public License for more details.
 
-(async () => {
-  // Initial load of all commands
-  await getOrLoadAllCommands(false);
+You should have received a copy of the GNU Affero General Public License along with Needle.
+If not, see <https://www.gnu.org/licenses/>.
+*/
 
-  const CLIENT = new Client({
-    intents: [
-      GatewayIntentBits.Guilds,
-      GatewayIntentBits.GuildMessages
-    ],
-    presence: {
-      activities: [{
-        type: "LISTENING",
-        name: "/help",
-      }],
-    },
-  });
+import "dotenv/config";
+import license from "./helpers/license.js";
+import ObjectFactory from "./ObjectFactory.js";
 
-  CLIENT.once("ready", () => {
-    console.log("Ready!");
-    deleteConfigsFromUnknownServers(CLIENT);
-  });
+console.log(license);
+const bot = ObjectFactory.createNeedleBot();
+await bot.loadDynamicImports();
+await bot.connect();
 
-  CLIENT.on("interactionCreate", async interaction => await handleInteractionCreate(interaction).catch(console.error));
-
-  CLIENT.on("messageCreate", async message => await handleMessageCreate(message).catch(console.error));
-
-  CLIENT.on("guildDelete", guild => { resetConfigToDefault(guild.id); });
-
-  CLIENT.login(getApiToken());
-
-  process.on("SIGINT", () => {
-    CLIENT.destroy();
-    console.log("Destroyed client");
-    process.exit(0);
-  });
-})();
-
+process.on("SIGINT", async () => {
+	await bot.disconnect();
+	process.exit(0);
+});
