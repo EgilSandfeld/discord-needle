@@ -18,7 +18,7 @@
 		"ERR_AMBIGUOUS_THREAD_AUTHOR": "Could not determine the author of this thread, because the initial message was missing.",
 
 		"SUCCESS_THREAD_CREATE": "Thread automatically created by $USER in $CHANNEL.",
-		"SUCCESS_THREAD_ARCHIVE_IMMEDIATE": "Thread was archived by $USER. Anyone can send a message to unarchive it.",
+		"SUCCESS_THREAD_ARCHIVE_IMMEDIATE": "Thread was archived by $USER.\n- Feel free to unarchive it if the issue has not been resolved\n- Anyone can send a message to unarchive it.",
 		"SUCCESS_THREAD_ARCHIVE_SLOW": "This thread will be archived automatically after 1 hour of inactivity as requested by $USER."
 	}
 }
